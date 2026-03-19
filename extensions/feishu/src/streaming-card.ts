@@ -169,11 +169,51 @@ export class FeishuStreamingSession {
   private pendingText: string | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private updateThrottleMs = 100; // Throttle updates to max 10/sec
+  private startTime = 0; // Session start time for elapsed display
+  private noteTimer: ReturnType<typeof setInterval> | null = null; // Elapsed time updater
+  private baseNote = ""; // Original note without elapsed time
 
   constructor(client: Client, creds: Credentials, log?: (msg: string) => void) {
     this.client = client;
     this.creds = creds;
     this.log = log;
+  }
+
+  /** Format elapsed seconds as "(Xs)" or "(Xm Ys)" */
+  private formatElapsed(elapsedSec: number): string {
+    if (elapsedSec < 60) {
+      return `(${elapsedSec}s)`;
+    }
+    const min = Math.floor(elapsedSec / 60);
+    const sec = elapsedSec % 60;
+    return `(${min}m ${sec}s)`;
+  }
+
+  /** Build note string with elapsed time */
+  private buildNoteWithElapsed(): string {
+    const elapsedSec = Math.floor((Date.now() - this.startTime) / 1000);
+    const elapsed = this.formatElapsed(elapsedSec);
+    return this.baseNote ? `${this.baseNote} ${elapsed}` : elapsed;
+  }
+
+  /** Start periodic elapsed time updates in note footer */
+  private startElapsedTimer(): void {
+    if (this.noteTimer) return;
+    this.noteTimer = setInterval(() => {
+      if (!this.state?.hasNote || this.closed) {
+        this.stopElapsedTimer();
+        return;
+      }
+      void this.updateNoteContent(this.buildNoteWithElapsed());
+    }, 5000); // Update every 5 seconds
+  }
+
+  /** Stop elapsed time updates */
+  private stopElapsedTimer(): void {
+    if (this.noteTimer) {
+      clearInterval(this.noteTimer);
+      this.noteTimer = null;
+    }
   }
 
   async start(
@@ -289,6 +329,11 @@ export class FeishuStreamingSession {
       currentText: "",
       hasNote: !!options?.note,
     };
+    this.startTime = Date.now();
+    this.baseNote = options?.note ?? "";
+    if (this.state.hasNote) {
+      this.startElapsedTimer();
+    }
     this.log?.(`Started streaming: cardId=${cardId}, messageId=${sendRes.data.message_id}`);
   }
 
@@ -391,6 +436,7 @@ export class FeishuStreamingSession {
       return;
     }
     this.closed = true;
+    this.stopElapsedTimer();
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -407,9 +453,12 @@ export class FeishuStreamingSession {
       this.state.currentText = text;
     }
 
-    // Update note with final model/provider info
-    if (options?.note) {
-      await this.updateNoteContent(options.note);
+    // Update note with final model/provider info + elapsed time
+    const finalNote = options?.note ?? this.baseNote;
+    if (finalNote && this.state.hasNote) {
+      const elapsedSec = Math.floor((Date.now() - this.startTime) / 1000);
+      const noteWithElapsed = `${finalNote} ${this.formatElapsed(elapsedSec)}`;
+      await this.updateNoteContent(noteWithElapsed);
     }
 
     // Close streaming mode
