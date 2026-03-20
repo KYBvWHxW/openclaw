@@ -172,6 +172,7 @@ export class FeishuStreamingSession {
   private startTime = 0; // Session start time for elapsed display
   private noteTimer: ReturnType<typeof setInterval> | null = null; // Elapsed time updater
   private baseNote = ""; // Original note without elapsed time
+  private turnCount = 0; // Current turn count for display
 
   constructor(client: Client, creds: Credentials, log?: (msg: string) => void) {
     this.client = client;
@@ -189,11 +190,12 @@ export class FeishuStreamingSession {
     return `(${min}m ${sec}s)`;
   }
 
-  /** Build note string with elapsed time */
+  /** Build note string with turn count and elapsed time */
   private buildNoteWithElapsed(): string {
     const elapsedSec = Math.floor((Date.now() - this.startTime) / 1000);
     const elapsed = this.formatElapsed(elapsedSec);
-    return this.baseNote ? `${this.baseNote} ${elapsed}` : elapsed;
+    const turnInfo = this.turnCount > 0 ? `Turn ${this.turnCount} | ` : "";
+    return this.baseNote ? `${this.baseNote} | ${turnInfo}${elapsed}` : `${turnInfo}${elapsed}`;
   }
 
   /** Start periodic elapsed time updates in note footer */
@@ -214,6 +216,19 @@ export class FeishuStreamingSession {
       clearInterval(this.noteTimer);
       this.noteTimer = null;
     }
+  }
+
+  /** Increment turn count and update note display */
+  incrementTurn(): void {
+    this.turnCount += 1;
+    if (this.state?.hasNote && !this.closed) {
+      void this.updateNoteContent(this.buildNoteWithElapsed());
+    }
+  }
+
+  /** Get current turn count */
+  getTurnCount(): number {
+    return this.turnCount;
   }
 
   async start(
@@ -453,11 +468,12 @@ export class FeishuStreamingSession {
       this.state.currentText = text;
     }
 
-    // Update note with final model/provider info + elapsed time
+    // Update note with final model/provider info + turn count + elapsed time
     const finalNote = options?.note ?? this.baseNote;
     if (finalNote && this.state.hasNote) {
       const elapsedSec = Math.floor((Date.now() - this.startTime) / 1000);
-      const noteWithElapsed = `${finalNote} ${this.formatElapsed(elapsedSec)}`;
+      const turnInfo = this.turnCount > 0 ? `${this.turnCount} turns | ` : "";
+      const noteWithElapsed = `${finalNote} | ${turnInfo}${this.formatElapsed(elapsedSec)}`;
       await this.updateNoteContent(noteWithElapsed);
     }
 

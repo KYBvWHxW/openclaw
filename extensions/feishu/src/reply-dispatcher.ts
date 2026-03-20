@@ -501,6 +501,14 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           }
         : undefined,
       onReasoningEnd: streamingEnabled ? () => {} : undefined,
+      onToolResult: streamingEnabled
+        ? () => {
+            // Increment turn counter on each tool call
+            if (streaming?.isActive()) {
+              streaming.incrementTurn();
+            }
+          }
+        : undefined,
     },
     markDispatchIdle,
   };
